@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PDF & Image Toolkit - verze 1.0 | Autor: PB | Email: pavel.bartos.pb@gmail.com</title>  <style>
+    :root {
+      --bg: #0b1020; --panel:#12182b; --muted:#91a0b3; --text:#e9eef7; --accent:#6aa3ff;
+      --ok:#3ddc97; --warn:#ffb703; --bad:#ef476f;
+    }
+    html,body{height:100%;}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Ubuntu,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);}
+    .wrap{max-width:1100px;margin:0 auto;padding:24px;}
+    h1{font-size:28px;margin:0 0 10px}
+    .sub{color:var(--muted);margin-bottom:20px}
+    .grid{display:grid;grid-template-columns:1.3fr .7fr;gap:18px}
+    .card{background:var(--panel);border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    .drop{border:2px dashed rgba(255,255,255,.16);border-radius:14px;padding:22px;text-align:center;cursor:pointer;transition:.15s}
+    .drop.dragover{background:rgba(255,255,255,.03);border-color:var(--accent)}
+    .btns{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+    button{background:#1a2240;border:1px solid rgba(255,255,255,.1);color:var(--text);padding:10px 14px;border-radius:12px;cursor:pointer;font-weight:600}
+    button.primary{background:linear-gradient(180deg,#2a5be9,#264fd0);border-color:#244ec0}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .opt{display:flex;align-items:center;gap:8px;color:var(--muted)}
+    input[type="range"]{width:180px}
+    .list{max-height:260px;overflow:auto;margin-top:10px;border-top:1px dashed rgba(255,255,255,.1)}
+    .item{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px dashed rgba(255,255,255,.06)}
+    .item .remove{background:#2a304a;border:1px solid rgba(255,255,255,.15);border-radius:10px;padding:6px 10px}
+    .item .remove:hover{filter:brightness(1.1)}
+    .tag{font-size:12px;color:#9fb0c9;background:#0c1423;border:1px solid rgba(255,255,255,.08);padding:2px 8px;border-radius:999px}
+    .hint{font-size:13px;color:var(--muted)}
+    .log{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; background:#0a0f1f;border-radius:12px;padding:12px;min-height:120px;max-height:220px;overflow:auto;}
+    a.dl{color:var(--ok);text-decoration:none;font-weight:700}
+    .footer{margin-top:18px;color:var(--muted);font-size:12px}
+  </style>
+  <!-- Libraries -->
+  <!-- pdf-lib for building/merging PDFs -->
+  <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <!-- pdf.js for rendering PDF pages to canvas (split/preview/pdf->jpg/compression) -->
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <!-- JSZip for packaging many output files (split, multiple JPGs) -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <!-- FileSaver for convenient downloads -->
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <h1>PDF & Image Toolkit</h1>
+    <div class="sub">Drag & Drop PDF / JPG / PNG. Vše běží lokálně v prohlížeči – nic se nikam neodesílá.</div>
+
+    <div class="grid">
+      <div class="card">
+        <div id="drop" class="drop">
+          <strong>Přetáhněte soubory sem</strong> nebo klikněte pro výběr
+          <input id="fileInput" type="file" accept="application/pdf,image/jpeg,image/png" multiple hidden />
+        </div>
+        <div class="btns">
+          <button id="btnMerge" class="primary" disabled>1) Sloučit do jednoho PDF</button>
+          <button id="btnCompress" disabled>2) Komprimovat PDF</button>
+          <button id="btnSplit" disabled>3) Rozdělit PDF na stránky (ZIP)</button>
+          <button id="btnPdfToJpg" disabled>4) PDF → JPG (ZIP)</button>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <label class="opt"><input type="checkbox" id="fitA4" checked> přizpůsobit obrázky na A4</label>
+          <label class="opt">Kvalita JPEG: <input type="range" id="jpgQuality" min="0.4" max="0.95" step="0.05" value="0.8"><span id="qLabel">0.80</span></label>
+          <label class="opt">DPI pro PDF→JPG: <input type="range" id="dpi" min="72" max="220" step="4" value="144"><span id="dpiLabel">144</span></label>
+        </div>
+        <div class="hint" style="margin-top:6px">Tipy: Sloučení podporuje mix PDF + obrázky. Komprese převzorkuje stránky do JPEG (nejlepší pro PDF složená z fotek/skenu). U vektorových PDF může dojít ke ztrátě ostrosti.</div>
+        <div class="list" id="fileList"></div>
+      </div>
+
+      <div class="card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <div style="font-weight:700">Protokol</div>
+          <button id="btnClear">Vyčistit</button>
+        </div>
+        <div id="log" class="log"></div>
+        <div class="footer">Vyrobeno v čistém HTML/JS. Knihovny: pdf-lib, pdf.js, JSZip, FileSaver.</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // === pdf.js worker ===
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+
+  const drop = document.getElementById('drop');
+  const fileInput = document.getElementById('fileInput');
+  const fileListEl = document.getElementById('fileList');
+  const logEl = document.getElementById('log');
+
+  const btnMerge = document.getElementById('btnMerge');
+  const btnCompress = document.getElementById('btnCompress');
+  const btnSplit = document.getElementById('btnSplit');
+  const btnPdfToJpg = document.getElementById('btnPdfToJpg');
+  const btnClear = document.getElementById('btnClear');
+
+  const fitA4 = document.getElementById('fitA4');
+  const jpgQuality = document.getElementById('jpgQuality');
+  const qLabel = document.getElementById('qLabel');
+  const dpi = document.getElementById('dpi');
+  const dpiLabel = document.getElementById('dpiLabel');
+
+  jpgQuality.addEventListener('input', ()=> qLabel.textContent = (+jpgQuality.value).toFixed(2));
+  dpi.addEventListener('input', ()=> dpiLabel.textContent = (dpi.value|0));
+
+  // items: {id, name, type, data(ArrayBuffer), thumb(optional dataURL)}
+  let items = [];
+
+  function log(msg, type='info'){
+    const color = type==='ok'? 'var(--ok)': type==='warn'? 'var(--warn)': type==='bad'? 'var(--bad)': 'var(--text)';
+    const time = new Date().toLocaleTimeString();
+    logEl.innerHTML += `<div><span style="color:${color}">[${time}]</span> ${msg}</div>`;
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function refreshUI(){
+    fileListEl.innerHTML = items.map((it,i)=>{
+      const ext = it.type.startsWith('application/pdf')? 'PDF' : (it.type.includes('png')? 'PNG':'JPG');
+      const size = (it.data.byteLength/1024/1024).toFixed(2)+ ' MB';
+      const thumb = it.thumb ? `<img src="${it.thumb}" alt="thumb" style="width:46px;height:46px;object-fit:cover;border-radius:8px;border:1px solid rgba(255,255,255,.08);margin-right:10px">` : '';
+      return `<div class="item" data-idx="${i}" draggable="true">
+        <div class="row" style="align-items:center;gap:10px">
+          <span class="tag" style="cursor:grab">⇅</span>
+          ${thumb}
+          <div><strong>${escapeHtml(it.name)}</strong> <span class="tag">${ext}</span><div class="hint">${size}</div></div>
+        </div>
+        <button class="remove" title="Odstranit" aria-label="Odstranit">✕</button>
+      </div>`;
+    }).join('');
+
+    const onlyPDF = items.length>0 && items.every(it=> it.type==='application/pdf');
+
+    btnMerge.disabled = items.length===0;
+    btnCompress.disabled = !onlyPDF || items.length!==1; // komprimujeme 1 PDF
+    btnSplit.disabled = !onlyPDF || items.length!==1;
+    btnPdfToJpg.disabled = !onlyPDF || items.length!==1;
+
+    // mazání
+    fileListEl.querySelectorAll('.remove').forEach((btn,i)=>{
+      btn.addEventListener('click', ()=>{ items.splice(i,1); refreshUI(); });
+    });
+
+    // přetahování
+    enableReorder();
+  }
+
+  function enableReorder(){
+    let dragIdx = null;
+    fileListEl.querySelectorAll('.item').forEach(el=>{
+      el.addEventListener('dragstart', e=>{ dragIdx = +el.dataset.idx; e.dataTransfer.effectAllowed = 'move'; });
+      el.addEventListener('dragover', e=>{ e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+      el.addEventListener('drop', e=>{
+        e.preventDefault();
+        const dropIdx = +el.dataset.idx;
+        if(dragIdx===null||dragIdx===dropIdx) return;
+        const [m]=items.splice(dragIdx,1);
+        items.splice(dropIdx,0,m);
+        refreshUI();
+      });
+    });
+  }
+
+  function escapeHtml(s){return s.replace(/[&<>\"']/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]) )}
+
+  // Drag & Drop
+  drop.addEventListener('click', ()=> fileInput.click());
+  drop.addEventListener('dragover', e=>{e.preventDefault(); drop.classList.add('dragover')});
+  drop.addEventListener('dragleave', ()=> drop.classList.remove('dragover'));
+  drop.addEventListener('drop', async e=>{
+    e.preventDefault(); drop.classList.remove('dragover');
+    await handleFiles(e.dataTransfer.files);
+  });
+  fileInput.addEventListener('change', async e=>{
+    await handleFiles(e.target.files);
+    fileInput.value = '';
+  });
+
+  async function handleFiles(fileList){
+    const allowed = ['application/pdf','image/jpeg','image/png'];
+    for(const f of fileList){
+      if(!allowed.includes(f.type)) { log(`Přeskočeno: ${f.name} – nepodporovaný typ`, 'warn'); continue; }
+      const buf = await f.arrayBuffer();
+      const item = {id:crypto.randomUUID(), name:f.name, type:f.type, data:buf, thumb:null};
+      items.push(item);
+      log(`Načteno: ${f.name}`,'ok');
+      // Vytvoř náhled
+      try{
+        if(f.type==='application/pdf'){
+          const pdf = await pdfjsLib.getDocument({data: cloneBuffer(buf)}).promise;
+          const page = await pdf.getPage(1);
+          const viewport = page.getViewport({ scale: 120/72 });
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          canvas.width = Math.max(1,Math.floor(viewport.width));
+          canvas.height = Math.max(1,Math.floor(viewport.height));
+          await page.render({canvasContext: ctx, viewport}).promise;
+          item.thumb = canvas.toDataURL('image/jpeg', 0.8);
+        } else {
+          // JPG/PNG
+          item.thumb = await new Promise(res=>{
+            const url = URL.createObjectURL(new Blob([buf], {type:f.type}));
+            const img = new Image();
+            img.onload=()=>{
+              const c=document.createElement('canvas');
+              const r=Math.min(1, 96/Math.max(img.width,img.height));
+              c.width=(img.width*r)|0; c.height=(img.height*r)|0;
+              c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+              URL.revokeObjectURL(url);
+              res(c.toDataURL('image/jpeg',0.85));
+            };
+            img.src=url;
+          });
+        }
+      }catch(e){ console.warn('Thumbnail error', e); }
+    }
+    refreshUI();
+  }
+
+  btnClear.addEventListener('click', ()=>{ items=[]; refreshUI(); log('Vymazán seznam souborů.'); });
+
+  // === 1) Merge (PDF + Images → single PDF) ===
+  btnMerge.addEventListener('click', async ()=>{
+    try{
+      if(items.length===0) return;
+      log('Sloučení zahájeno…');
+      const { PDFDocument } = PDFLib;
+      const out = await PDFDocument.create();
+
+      // Copy in PDFs first (v pořadí v seznamu)
+      for(const it of items){
+        if(it.type==='application/pdf'){
+          const src = await PDFDocument.load(cloneBuffer(it.data));
+          const pages = await out.copyPages(src, src.getPageIndices());
+          pages.forEach(p=> out.addPage(p));
+        }
+      }
+      // Then add images as pages
+      for(const it of items){
+        if(it.type!=='application/pdf'){
+          const isPng = it.type.includes('png');
+          const img = isPng ? await out.embedPng(it.data) : await out.embedJpg(it.data);
+
+          let pageWidth = img.width;
+          let pageHeight = img.height;
+          if(fitA4.checked){ // A4 portrait, fit with margin
+            const A4 = {w:595.28, h:841.89};
+            const scale = Math.min(A4.w/img.width, A4.h/img.height);
+            pageWidth = A4.w; pageHeight = A4.h;
+            const page = out.addPage([pageWidth, pageHeight]);
+            const drawW = img.width*scale, drawH = img.height*scale;
+            const x = (pageWidth - drawW)/2, y = (pageHeight - drawH)/2;
+            page.drawImage(img, {x, y, width: drawW, height: drawH});
+            continue;
+          }
+          const page = out.addPage([pageWidth, pageHeight]);
+          page.drawImage(img, {x:0, y:0, width: pageWidth, height: pageHeight});
+        }
+      }
+      const bytes = await out.save();
+      const blob = new Blob([bytes], {type:'application/pdf'});
+      saveAs(blob, 'merged.pdf');
+      log('Hotovo: stažen soubor merged.pdf','ok');
+    }catch(err){
+      console.error(err); log('Chyba při slučování: '+err.message,'bad');
+    }
+  });
+
+  // === 2) Compress single PDF (rasterize pages to JPEG) ===
+  btnCompress.addEventListener('click', async ()=>{
+    try{
+      const quality = parseFloat(jpgQuality.value);
+      const dpiVal = 110; // mírné DPI pro kompresní rebuild
+      const pdfFile = items[0];
+      log(`Komprese: ${pdfFile.name} (JPEG kvalita ${quality})…`);
+
+      const pdf = await pdfjsLib.getDocument({data: cloneBuffer(pdfFile.data)}).promise;
+      const { PDFDocument } = PDFLib;
+      const out = await PDFDocument.create();
+
+      for(let i=1;i<=pdf.numPages;i++){
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: dpiVal/72 });
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: false });
+        canvas.width = Math.max(1,Math.floor(viewport.width));
+        canvas.height = Math.max(1,Math.floor(viewport.height));
+        await page.render({canvasContext: ctx, viewport}).promise;
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        const imgBytes = dataURLtoUint8Array(dataUrl);
+
+        const img = await out.embedJpg(imgBytes);
+        const pageRef = out.addPage([canvas.width, canvas.height]);
+        pageRef.drawImage(img, {x:0,y:0,width:canvas.width,height:canvas.height});
+      }
+      const bytes = await out.save();
+      const outBlob = new Blob([bytes], {type:'application/pdf'});
+      const outName = pdfFile.name.replace(/\.pdf$/i,'') + '.compressed.pdf';
+      saveAs(outBlob, outName);
+      const before = (pdfFile.data.byteLength/1024/1024).toFixed(2);
+      const after = (bytes.byteLength/1024/1024).toFixed(2);
+      log(`Komprese dokončena: ${before} → ${after} MB (${outName})`, 'ok');
+    }catch(err){ console.error(err); log('Chyba při kompresi: '+err.message,'bad'); }
+  });
+
+  // === 3) Split single PDF to per-page PDFs (ZIP) ===
+  btnSplit.addEventListener('click', async ()=>{
+    try{
+      const pdfFile = items[0];
+      log(`Rozdělení: ${pdfFile.name}…`);
+      const { PDFDocument } = PDFLib;
+      const src = await PDFDocument.load(cloneBuffer(pdfFile.data));
+      const zip = new JSZip();
+
+      for(let i=0;i<src.getPageCount();i++){
+        const out = await PDFDocument.create();
+        const [copied] = await out.copyPages(src,[i]);
+        out.addPage(copied);
+        const bytes = await out.save();
+        const fname = `${pdfFile.name.replace(/\.pdf$/i,'')}_p${String(i+1).padStart(3,'0')}.pdf`;
+        zip.file(fname, bytes);
+      }
+      const blob = await zip.generateAsync({type:'blob'});
+      saveAs(blob, pdfFile.name.replace(/\.pdf$/i,'') + '_split.zip');
+      log('Rozdělení dokončeno a staženo jako ZIP.','ok');
+    }catch(err){ console.error(err); log('Chyba při rozdělení: '+err.message,'bad'); }
+  });
+
+  // === 4) PDF → JPGs (ZIP) ===
+  btnPdfToJpg.addEventListener('click', async ()=>{
+    try{
+      const pdfFile = items[0];
+      const dpiVal = parseInt(dpi.value,10);
+      const quality = parseFloat(jpgQuality.value);
+      log(`Export PDF→JPG: ${pdfFile.name} (DPI ${dpiVal}, kvalita ${quality})…`);
+
+      const pdf = await pdfjsLib.getDocument({data: cloneBuffer(pdfFile.data)}).promise;
+      const zip = new JSZip();
+
+      for(let i=1;i<=pdf.numPages;i++){
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: dpiVal/72 });
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = Math.max(1,Math.floor(viewport.width));
+        canvas.height = Math.max(1,Math.floor(viewport.height));
+        await page.render({canvasContext: ctx, viewport}).promise;
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        const bstr = atob(dataUrl.split(',')[1]);
+        const u8 = new Uint8Array(bstr.length);
+        for(let j=0;j<bstr.length;j++) u8[j] = bstr.charCodeAt(j);
+        const fname = `${pdfFile.name.replace(/\.pdf$/i,'')}_p${String(i).padStart(3,'0')}.jpg`;
+        zip.file(fname, u8);
+      }
+      const blob = await zip.generateAsync({type:'blob'});
+      saveAs(blob, pdfFile.name.replace(/\.pdf$/i,'') + '_jpg.zip');
+      log('Export dokončen a stažen jako ZIP.','ok');
+    }catch(err){ console.error(err); log('Chyba při exportu PDF→JPG: '+err.message,'bad'); }
+  });
+
+  // === Helpers ===
+  function dataURLtoUint8Array(dataUrl){
+    const bstr = atob(dataUrl.split(',')[1]);
+    const u8 = new Uint8Array(bstr.length);
+    for(let i=0;i<bstr.length;i++) u8[i] = bstr.charCodeAt(i);
+    return u8;
+  }
+  // Clone ArrayBuffer to avoid detaching when pdf.js transfers it to worker
+  function cloneBuffer(buf){
+    return buf.slice(0); // fresh ArrayBuffer copy
+  }
+</script>
+</body>
+</html>
